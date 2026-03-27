@@ -13,20 +13,22 @@ import { ja } from 'date-fns/locale'
 import type { DailyRecord, Prediction, WeatherData } from '@/types/database'
 import Link from 'next/link'
 import {
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
   ChefHat,
   Thermometer,
   CloudRain,
   PlusCircle,
+  Sun,
 } from 'lucide-react'
+
+interface DayData {
+  weather: WeatherData | null
+  prediction: Prediction | null
+}
 
 export default function DashboardPage() {
   const { store, settings } = useStore()
-  const [todayWeather, setTodayWeather] = useState<WeatherData | null>(null)
-  const [tomorrowWeather, setTomorrowWeather] = useState<WeatherData | null>(null)
-  const [tomorrowPrediction, setTomorrowPrediction] = useState<Prediction | null>(null)
+  const [todayData, setTodayData] = useState<DayData>({ weather: null, prediction: null })
+  const [tomorrowData, setTomorrowData] = useState<DayData>({ weather: null, prediction: null })
   const [recentRecords, setRecentRecords] = useState<DailyRecord[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -39,16 +41,15 @@ export default function DashboardPage() {
       const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd')
       const weekAgo = format(subDays(new Date(), 7), 'yyyy-MM-dd')
 
-      // 今日の天気を取得
-      let { data: weather } = await supabase
+      // 天気データがなければ自動取得
+      let { data: todayWeather } = await supabase
         .from('weather_data')
         .select('*')
         .eq('store_id', store.id)
         .eq('date', today)
         .single()
 
-      // 天気データがなければ自動取得
-      if (!weather && store.latitude && store.longitude) {
+      if (!todayWeather && store.latitude && store.longitude) {
         try {
           await fetch('/api/weather', {
             method: 'POST',
@@ -60,54 +61,50 @@ export default function DashboardPage() {
               days: 7,
             }),
           })
-          const { data: freshWeather } = await supabase
+          const { data } = await supabase
             .from('weather_data')
             .select('*')
             .eq('store_id', store.id)
             .eq('date', today)
             .single()
-          weather = freshWeather
+          todayWeather = data
         } catch {}
       }
-      setTodayWeather(weather)
 
-      // 明日の天気（予報）を取得
+      // 予測を今日＋明日分生成
+      try {
+        await fetch('/api/predictions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storeId: store.id, dates: [today, tomorrow] }),
+        })
+      } catch {}
+
+      // 今日・明日の天気を取得
       const { data: tmrwWeather } = await supabase
         .from('weather_data')
         .select('*')
         .eq('store_id', store.id)
         .eq('date', tomorrow)
         .single()
-      setTomorrowWeather(tmrwWeather)
 
-      // 明日の予測を取得
-      let { data: prediction } = await supabase
+      // 今日・明日の予測を取得
+      const { data: todayPred } = await supabase
+        .from('predictions')
+        .select('*')
+        .eq('store_id', store.id)
+        .eq('date', today)
+        .single()
+
+      const { data: tmrwPred } = await supabase
         .from('predictions')
         .select('*')
         .eq('store_id', store.id)
         .eq('date', tomorrow)
         .single()
 
-      // 予測がなければ自動生成（実績データがある場合のみ）
-      if (!prediction) {
-        try {
-          const res = await fetch('/api/predictions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ storeId: store.id }),
-          })
-          if (res.ok) {
-            const { data: freshPrediction } = await supabase
-              .from('predictions')
-              .select('*')
-              .eq('store_id', store.id)
-              .eq('date', tomorrow)
-              .single()
-            prediction = freshPrediction
-          }
-        } catch {}
-      }
-      setTomorrowPrediction(prediction)
+      setTodayData({ weather: todayWeather, prediction: todayPred })
+      setTomorrowData({ weather: tmrwWeather, prediction: tmrwPred })
 
       // 直近7日の実績
       const { data: records } = await supabase
@@ -162,92 +159,137 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* 今日の天気 + 明日の予測 */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* 今日の天気 */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500">今日の天気</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {todayWeather ? (
-              <div className="flex items-center gap-4">
-                <span className="text-4xl">{weatherTypeToEmoji(todayWeather.weather_type as any)}</span>
-                <div>
-                  <p className="text-lg font-semibold">{todayWeather.weather_type}</p>
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <Thermometer className="h-4 w-4" />
-                    <span>{todayWeather.temp_min}℃ / {todayWeather.temp_max}℃</span>
-                    {todayWeather.precipitation != null && todayWeather.precipitation > 0 && (
-                      <>
-                        <CloudRain className="h-4 w-4 ml-2" />
-                        <span>{todayWeather.precipitation}mm</span>
-                      </>
+      {/* ===== 今日の予測（メイン） ===== */}
+      <Card className="border-orange-300 bg-gradient-to-br from-orange-50 to-amber-50 shadow-md">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-bold text-orange-700">
+              📍 今日の予測（{todayCal.weekday_name}曜日）
+              {todayCal.is_holiday && (
+                <Badge variant="secondary" className="ml-2 bg-red-100 text-red-600 text-xs">祝</Badge>
+              )}
+            </CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+            {/* 左：予測数値 */}
+            <div>
+              {todayData.prediction ? (
+                <div className="space-y-3">
+                  <div className="flex items-baseline gap-6">
+                    <div>
+                      <p className="text-4xl font-extrabold text-orange-700">
+                        {todayData.prediction.predicted_sales_count}
+                        <span className="text-lg font-normal text-orange-500 ml-1">個</span>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <ChefHat className="h-6 w-6 text-orange-500" />
+                      <p className="text-2xl font-bold text-orange-600">
+                        {todayData.prediction.final_recommended_value ?? todayData.prediction.predicted_cooked_rice_go}
+                        <span className="text-sm font-normal ml-1">合</span>
+                      </p>
+                    </div>
+                  </div>
+                  {todayData.prediction.reasoning_text && (
+                    <p className="text-sm text-orange-600/80">{todayData.prediction.reasoning_text}</p>
+                  )}
+                  <div className="flex items-center gap-3">
+                    {todayData.prediction.confidence_score != null && (
+                      <Badge variant="outline" className="text-xs border-orange-300">
+                        信頼度: {Math.round(todayData.prediction.confidence_score * 100)}%
+                      </Badge>
+                    )}
+                    {todayRecord && (
+                      <Badge variant="secondary" className="text-xs bg-green-50 text-green-700">
+                        実績: {todayRecord.sales_count}個
+                      </Badge>
                     )}
                   </div>
                 </div>
-              </div>
-            ) : (
-              <p className="text-gray-400 text-sm">天気データがありません。設定から天気を取得してください。</p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* 明日の予測 */}
-        <Card className="border-orange-200 bg-orange-50/50">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-orange-600">
-                明日の予測 ({tomorrowCal.weekday_name}曜日)
-                {tomorrowCal.is_holiday && (
-                  <Badge variant="secondary" className="ml-2 bg-red-50 text-red-600 text-xs">祝</Badge>
-                )}
-              </CardTitle>
-              {tomorrowWeather && (
-                <div className="flex items-center gap-1.5 text-xs text-orange-500">
-                  <span>{weatherTypeToEmoji(tomorrowWeather.weather_type as any)}</span>
-                  <span>{tomorrowWeather.weather_type}</span>
-                  <span>{tomorrowWeather.temp_min}~{tomorrowWeather.temp_max}℃</span>
+              ) : (
+                <div className="text-sm text-orange-500">
+                  <p>予測データがありません</p>
+                  <p className="text-xs mt-1">実績データを入力すると予測が生成されます</p>
                 </div>
               )}
             </div>
-          </CardHeader>
-          <CardContent>
-            {tomorrowPrediction ? (
-              <div className="space-y-2">
-                <div className="flex items-baseline gap-4">
-                  <div>
-                    <p className="text-3xl font-bold text-orange-700">
-                      {tomorrowPrediction.predicted_sales_count}
-                      <span className="text-base font-normal text-orange-500 ml-1">個</span>
+
+            {/* 右：天気 */}
+            <div className="flex flex-col items-center justify-center border-l border-orange-200 pl-4 min-w-[120px]">
+              {todayData.weather ? (
+                <>
+                  <span className="text-4xl">{weatherTypeToEmoji(todayData.weather.weather_type as any)}</span>
+                  <p className="text-sm font-semibold mt-1">{todayData.weather.weather_type}</p>
+                  <p className="text-xs text-gray-500 flex items-center gap-1">
+                    <Thermometer className="h-3 w-3" />
+                    {todayData.weather.temp_min}℃〜{todayData.weather.temp_max}℃
+                  </p>
+                  {todayData.weather.precipitation != null && todayData.weather.precipitation > 0 && (
+                    <p className="text-xs text-blue-500 flex items-center gap-1">
+                      <CloudRain className="h-3 w-3" />
+                      {todayData.weather.precipitation}mm
                     </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <ChefHat className="h-5 w-5 text-orange-500" />
-                    <p className="text-xl font-semibold text-orange-600">
-                      {tomorrowPrediction.final_recommended_value ?? tomorrowPrediction.predicted_cooked_rice_go}
-                      <span className="text-sm font-normal ml-1">合</span>
-                    </p>
-                  </div>
-                </div>
-                {tomorrowPrediction.reasoning_text && (
-                  <p className="text-xs text-orange-600/70">{tomorrowPrediction.reasoning_text}</p>
-                )}
-                {tomorrowPrediction.confidence_score != null && (
-                  <Badge variant="outline" className="text-xs">
-                    信頼度: {Math.round(tomorrowPrediction.confidence_score * 100)}%
-                  </Badge>
-                )}
-              </div>
-            ) : (
-              <div className="text-sm text-orange-500">
-                <p>予測データがありません</p>
-                <p className="text-xs mt-1">実績データを入力すると予測が生成されます</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-gray-400">天気データなし</p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ===== 明日の予測 ===== */}
+      <Card className="border-gray-200">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium text-gray-600">
+              明日の予測（{tomorrowCal.weekday_name}曜日）
+              {tomorrowCal.is_holiday && (
+                <Badge variant="secondary" className="ml-2 bg-red-50 text-red-600 text-xs">祝</Badge>
+              )}
+            </CardTitle>
+            {tomorrowData.weather && (
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span>{weatherTypeToEmoji(tomorrowData.weather.weather_type as any)}</span>
+                <span>{tomorrowData.weather.weather_type}</span>
+                <span>{tomorrowData.weather.temp_min}〜{tomorrowData.weather.temp_max}℃</span>
               </div>
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {tomorrowData.prediction ? (
+            <div className="flex items-baseline gap-6">
+              <div>
+                <p className="text-2xl font-bold text-gray-800">
+                  {tomorrowData.prediction.predicted_sales_count}
+                  <span className="text-sm font-normal text-gray-500 ml-1">個</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <ChefHat className="h-4 w-4 text-gray-500" />
+                <p className="text-lg font-semibold text-gray-700">
+                  {tomorrowData.prediction.final_recommended_value ?? tomorrowData.prediction.predicted_cooked_rice_go}
+                  <span className="text-xs font-normal ml-1">合</span>
+                </p>
+              </div>
+              {tomorrowData.prediction.confidence_score != null && (
+                <Badge variant="outline" className="text-xs">
+                  信頼度: {Math.round(tomorrowData.prediction.confidence_score * 100)}%
+                </Badge>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">予測データがありません</p>
+          )}
+          {tomorrowData.prediction?.reasoning_text && (
+            <p className="text-xs text-gray-500 mt-2">{tomorrowData.prediction.reasoning_text}</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* 今日の実績サマリ */}
       <div className="grid gap-4 md:grid-cols-3">
