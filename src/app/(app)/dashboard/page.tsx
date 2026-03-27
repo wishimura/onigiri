@@ -25,6 +25,7 @@ import {
 export default function DashboardPage() {
   const { store, settings } = useStore()
   const [todayWeather, setTodayWeather] = useState<WeatherData | null>(null)
+  const [tomorrowWeather, setTomorrowWeather] = useState<WeatherData | null>(null)
   const [tomorrowPrediction, setTomorrowPrediction] = useState<Prediction | null>(null)
   const [recentRecords, setRecentRecords] = useState<DailyRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,6 +70,15 @@ export default function DashboardPage() {
         } catch {}
       }
       setTodayWeather(weather)
+
+      // 明日の天気（予報）を取得
+      const { data: tmrwWeather } = await supabase
+        .from('weather_data')
+        .select('*')
+        .eq('store_id', store.id)
+        .eq('date', tomorrow)
+        .single()
+      setTomorrowWeather(tmrwWeather)
 
       // 明日の予測を取得
       let { data: prediction } = await supabase
@@ -186,12 +196,21 @@ export default function DashboardPage() {
         {/* 明日の予測 */}
         <Card className="border-orange-200 bg-orange-50/50">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-orange-600">
-              明日の予測 ({tomorrowCal.weekday_name}曜日)
-              {tomorrowCal.is_holiday && (
-                <Badge variant="secondary" className="ml-2 bg-red-50 text-red-600 text-xs">祝</Badge>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium text-orange-600">
+                明日の予測 ({tomorrowCal.weekday_name}曜日)
+                {tomorrowCal.is_holiday && (
+                  <Badge variant="secondary" className="ml-2 bg-red-50 text-red-600 text-xs">祝</Badge>
+                )}
+              </CardTitle>
+              {tomorrowWeather && (
+                <div className="flex items-center gap-1.5 text-xs text-orange-500">
+                  <span>{weatherTypeToEmoji(tomorrowWeather.weather_type as any)}</span>
+                  <span>{tomorrowWeather.weather_type}</span>
+                  <span>{tomorrowWeather.temp_min}~{tomorrowWeather.temp_max}℃</span>
+                </div>
               )}
-            </CardTitle>
+            </div>
           </CardHeader>
           <CardContent>
             {tomorrowPrediction ? (
