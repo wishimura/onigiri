@@ -10,15 +10,15 @@ import { useRouter } from 'next/navigation'
 
 function StoreSetup() {
   const [name, setName] = useState('')
-  const { createStore, loading } = useStoreSetup()
-  const router = useRouter()
+  const { createStore, loading, error } = useStoreSetup()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
-    await createStore(name.trim())
-    router.refresh()
-    window.location.reload()
+    const store = await createStore(name.trim())
+    if (store) {
+      window.location.reload()
+    }
   }
 
   return (
@@ -36,6 +36,11 @@ function StoreSetup() {
               onChange={(e) => setName(e.target.value)}
               required
             />
+            {error && (
+              <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
+                {error}
+              </div>
+            )}
             <Button type="submit" className="w-full bg-orange-600 hover:bg-orange-700" disabled={loading}>
               {loading ? '作成中...' : '店舗を作成'}
             </Button>
