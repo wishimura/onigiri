@@ -38,22 +38,65 @@ export default function DashboardPage() {
       const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd')
       const weekAgo = format(subDays(new Date(), 7), 'yyyy-MM-dd')
 
-      // 今日の天気
-      const { data: weather } = await supabase
+      // 今日の天気を取得
+      let { data: weather } = await supabase
         .from('weather_data')
         .select('*')
         .eq('store_id', store.id)
         .eq('date', today)
         .single()
+
+      // 天気データがなければ自動取得
+      if (!weather && store.latitude && store.longitude) {
+        try {
+          await fetch('/api/weather', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              storeId: store.id,
+              latitude: store.latitude,
+              longitude: store.longitude,
+              days: 7,
+            }),
+          })
+          const { data: freshWeather } = await supabase
+            .from('weather_data')
+            .select('*')
+            .eq('store_id', store.id)
+            .eq('date', today)
+            .single()
+          weather = freshWeather
+        } catch {}
+      }
       setTodayWeather(weather)
 
-      // 明日の予測
-      const { data: prediction } = await supabase
+      // 明日の予測を取得
+      let { data: prediction } = await supabase
         .from('predictions')
         .select('*')
         .eq('store_id', store.id)
         .eq('date', tomorrow)
         .single()
+
+      // 予測がなければ自動生成（実績データがある場合のみ）
+      if (!prediction) {
+        try {
+          const res = await fetch('/api/predictions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ storeId: store.id }),
+          })
+          if (res.ok) {
+            const { data: freshPrediction } = await supabase
+              .from('predictions')
+              .select('*')
+              .eq('store_id', store.id)
+              .eq('date', tomorrow)
+              .single()
+            prediction = freshPrediction
+          }
+        } catch {}
+      }
       setTomorrowPrediction(prediction)
 
       // 直近7日の実績
