@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { predictSales } from '@/lib/prediction'
 import { fetchForecast } from '@/lib/weather'
 import { getCalendarInfo } from '@/lib/holidays'
-import { format, addDays, subDays } from 'date-fns'
+import { todayJST, tomorrowJST, daysAgoJST } from '@/lib/date'
 import type { WeatherType } from '@/types/database'
 
 export async function POST(request: Request) {
@@ -21,7 +21,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // 店舗情報取得
     const { data: store } = await supabase
       .from('stores')
       .select('*')
@@ -32,7 +31,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Store not found' }, { status: 404 })
     }
 
-    // 設定取得
     const { data: settings } = await supabase
       .from('store_settings')
       .select('*')
@@ -41,8 +39,7 @@ export async function POST(request: Request) {
 
     const ricePerGo = settings?.rice_per_go ?? 13
 
-    // 過去実績取得（60日分）
-    const sixtyDaysAgo = format(subDays(new Date(), 60), 'yyyy-MM-dd')
+    const sixtyDaysAgo = daysAgoJST(60)
     const { data: records } = await supabase
       .from('daily_records')
       .select('*')
@@ -54,15 +51,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Not enough data for prediction' }, { status: 400 })
     }
 
-    // 天気過去データ
     const { data: weatherHistory } = await supabase
       .from('weather_data')
       .select('*')
       .eq('store_id', storeId)
       .gte('date', sixtyDaysAgo)
 
-    // 明日の天気予報取得
-    const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd')
+    const tomorrow = tomorrowJST()
     let tomorrowWeather: { weather_type: WeatherType; temp_avg: number } = {
       weather_type: '不明',
       temp_avg: 15,
@@ -78,7 +73,6 @@ export async function POST(request: Request) {
             temp_avg: tomorrowForecast.temp_avg,
           }
 
-          // 天気予報もDBに保存
           await supabase.from('weather_data').upsert({
             store_id: storeId,
             date: tomorrow,
@@ -90,14 +84,13 @@ export async function POST(request: Request) {
             source_api: 'open-meteo-forecast',
           }, { onConflict: 'store_id,date' })
         }
-      } catch (e) {
+      } catch {
         // 天気取得失敗してもルールベースで予測を続行
       }
     }
 
     const tomorrowCalendar = getCalendarInfo(tomorrow)
 
-    // 予測実行
     const prediction = predictSales({
       targetDate: tomorrow,
       targetWeather: tomorrowWeather,
@@ -107,7 +100,6 @@ export async function POST(request: Request) {
       ricePerGo,
     })
 
-    // 予測結果保存
     const { error } = await supabase.from('predictions').upsert({
       store_id: storeId,
       date: tomorrow,
@@ -122,8 +114,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // 過去の予測に実績を紐づけ（バックフィル）
-    const today = format(new Date(), 'yyyy-MM-dd')
+    // 過去の予測に実績を紐づけ
+    const today = todayJST()
     const { data: todayPrediction } = await supabase
       .from('predictions')
       .select('*')
