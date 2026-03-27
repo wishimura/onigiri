@@ -1,0 +1,4 @@
+date,sales_count,sales_amount,cooked_rice_go,waste_count,sold_out,note
+2025-01-06,180,54000,14,5,false,通常営業
+2025-01-07,210,63000,16,3,false,
+2025-01-08,150,45000,12,8,false,雨で客足少なめ
