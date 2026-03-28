@@ -11,13 +11,9 @@ import {
   TrendingUp,
   Settings,
   LogOut,
-  Menu,
-  X,
 } from 'lucide-react'
-import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Button } from '@/components/ui/button'
 
 const navigation = [
   { name: 'ダッシュボード', href: '/dashboard', icon: LayoutDashboard },
@@ -31,8 +27,6 @@ const navigation = [
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const [open, setOpen] = useState(false)
-
   const handleLogout = async () => {
     const supabase = createClient()
     await supabase.auth.signOut()
@@ -40,31 +34,8 @@ export function Sidebar() {
   }
 
   return (
-    <>
-      {/* モバイルメニューボタン */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="fixed top-3 left-3 z-50 md:hidden"
-        onClick={() => setOpen(!open)}
-      >
-        {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-      </Button>
-
-      {/* オーバーレイ */}
-      {open && (
-        <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
-          onClick={() => setOpen(false)}
-        />
-      )}
-
-      {/* サイドバー */}
       <aside
-        className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-white border-r border-gray-200 transition-transform duration-200 md:translate-x-0 md:static',
-          open ? 'translate-x-0' : '-translate-x-full'
-        )}
+        className="hidden md:flex w-64 flex-col bg-white border-r border-gray-200"
       >
         <div className="flex h-14 items-center gap-2 border-b px-4">
           <span className="text-2xl">🍙</span>
@@ -78,7 +49,6 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setOpen(false)}
                 className={cn(
                   'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                   isActive
@@ -103,6 +73,5 @@ export function Sidebar() {
           </button>
         </div>
       </aside>
-    </>
   )
 }
